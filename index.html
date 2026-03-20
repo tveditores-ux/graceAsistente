@@ -325,6 +325,9 @@ let db=null, fbR={};
 // ── CFG ────────────────────────────────────────────
 function saveCfg(){ localStorage.setItem('grace_cfg', JSON.stringify(cfg)); }
 function loadCfg(){ try{ cfg=JSON.parse(localStorage.getItem('grace_cfg')||'{}'); }catch{ cfg={}; } }
+function getCfg(){ 
+  try{ return JSON.parse(localStorage.getItem('grace_cfg')||'{}'); }catch{ return cfg; } 
+}
 
 // ── SETUP ──────────────────────────────────────────
 function doSetup(){
@@ -545,11 +548,13 @@ async function handleCmd(text){
 const SYS=`Eres Grace, asistente de tareas. Tiempo real=base+20%arranque+15%transiciones+10%imprevistos. Micro-paso: imposible no hacerlo, máx 80 chars. Plan solo si 3+ pasos. Responde SOLO JSON sin markdown: {"title":"max 70","cat":"domestic|pastoral|trading|personal","pri":"high|medium|low","mins":N,"step":"string","plan":[],"warn":"o null","best":"mañana|tarde|noche|cualquiera"}`;
 
 async function callAI(text){
-  if(!cfg.apiKey) return null;
+  const freshCfg=JSON.parse(localStorage.getItem('grace_cfg')||'{}');
+  const apiKey=freshCfg.apiKey||cfg.apiKey;
+  if(!apiKey) return null;
   try{
     const r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':cfg.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:600,system:SYS,messages:[{role:'user',content:`Tarea: "${text}"`}]})
     });
     if(!r.ok) return null;
