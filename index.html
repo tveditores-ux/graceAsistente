@@ -934,34 +934,48 @@ async function tgSend(text) {
   } catch(e) { console.warn('TG send error', e); }
 }
 
+// Evita peticiones solapadas en Safari
+let tgPolling = false;
+
 async function tgPoll() {
-  if (!cfg.tgToken) return;
+  if (!cfg.tgToken || tgPolling) return;
+  tgPolling = true;
   try {
-    const r = await fetch(
-      `https://api.telegram.org/bot${cfg.tgToken}/getUpdates?offset=${tgOffset}&timeout=5&allowed_updates=["message"]`
-    );
+    // timeout=0 evita que Safari mate la peticion en background
+    const url = `https://api.telegram.org/bot${cfg.tgToken}/getUpdates?offset=${tgOffset}&timeout=0`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!r.ok) { setTgDot('err'); return; }
     const data = await r.json();
+
+    if (!data.ok) { setTgDot('err'); return; }
     setTgDot('on');
 
-    if (!data.ok || !data.result?.length) return;
+    if (!data.result?.length) return;
 
     for (const upd of data.result) {
       tgOffset = upd.update_id + 1;
       const msg = upd.message;
       if (!msg?.text) continue;
-      // Only handle messages from our chat
       if (String(msg.chat.id) !== String(cfg.chatId)) continue;
 
       const text = msg.text.trim();
-      tgLog.unshift({ from: msg.from?.first_name || 'Tú', text, time: new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}) });
+      const t = new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+      tgLog.unshift({ from: msg.from?.first_name || 'Tú', text, time: t });
       if (tgLog.length > 50) tgLog.pop();
 
       await handleTgMessage(text);
+
+      // Fuerza re-render del tab activo tras cada mensaje
+      if (curTab !== 'settings') render();
+      updateStats();
     }
   } catch(e) {
-    setTgDot('err');
-    console.warn('TG poll error', e);
+    if (e.name !== 'AbortError') {
+      setTgDot('err');
+      console.warn('TG poll:', e.message);
+    }
+  } finally {
+    tgPolling = false;
   }
 }
 
@@ -972,8 +986,18 @@ function setTgDot(state) {
 
 function startTgPoll() {
   if (tgPollTimer) clearInterval(tgPollTimer);
-  tgPoll();
-  tgPollTimer = setInterval(tgPoll, 4000);
+  // Primer poll inmediato para marcar offset actual (ignora mensajes viejos)
+  fetch(`https://api.telegram.org/bot${cfg.tgToken}/getUpdates?offset=-1&timeout=0`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok && d.result?.length) {
+        tgOffset = d.result[d.result.length - 1].update_id + 1;
+      }
+      tgPoll();
+    })
+    .catch(() => tgPoll());
+  // Polling cada 3 segundos
+  tgPollTimer = setInterval(tgPoll, 3000);
 }
 
 // ──────────────────────────────────────────────────
